@@ -1,0 +1,49 @@
+.DS_Store
+Thumbs.db
+*.swp
+*~
+
+# --- Development Environments ---
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# --- ESP-IDF / Firmware Build Artifacts ---
+firmware/csi_receiver/build/
+firmware/csi_receiver/sdkconfig
+firmware/csi_receiver/sdkconfig.old
+firmware/csi_receiver/managed_components/
+firmware/csi_receiver/dependencies.lock
+
+# --- Python Virtual Environments & Dependencies ---
+.venv/
+env/
+venv/
+ENV/
+build/
+dist/
+*.egg-info/
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+
+# --- Research Data / Datasets ---
+data/raw/*
+data/processed/*
+!data/raw/.gitkeep
+!data/processed/.gitkeep
+!data/templates/
+*.csv
+*.h5
+*.npy
+*.npz
+*.mat
+
+# --- Hardware / J-Link ---
+.gdbinit
+.gdb_history

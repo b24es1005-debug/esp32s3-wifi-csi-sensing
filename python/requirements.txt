@@ -1,0 +1,11 @@
+# python/requirements.txt
+# Install with: pip install -r requirements.txt
+#
+# All versions are minimum constraints.
+# Tested with Python 3.11 on Arch Linux.
+
+pyserial>=3.5       # UART serial port I/O
+numpy>=1.24         # array math, FFT
+pandas>=2.0         # CSV I/O and DataFrame operations
+scipy>=1.10         # Butterworth filter (scipy.signal)
+matplotlib>=3.7     # real-time dashboard and all plots
