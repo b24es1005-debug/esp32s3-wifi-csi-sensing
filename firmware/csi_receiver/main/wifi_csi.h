@@ -9,6 +9,7 @@
 
 #pragma once
 
+#include "fw_config.h"
 #include <stdint.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"

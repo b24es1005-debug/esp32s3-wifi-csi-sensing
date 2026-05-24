@@ -47,6 +47,11 @@ static EventGroupHandle_t s_wifi_event_group = NULL;
 /* Throttle counter — only emit every CSI_THROTTLE_EVERY packets */
 static volatile uint32_t s_packet_count = 0;
 
+/* Callback-level statistics (best-effort, lock-free) */
+static volatile uint32_t s_cb_ok_packets      = 0;
+static volatile uint32_t s_cb_drop_invalid    = 0;
+static volatile uint32_t s_cb_drop_queue_full = 0;
+
 /* ===========================================================================
  * SECTION 1: WiFi event handler
  *
@@ -100,6 +105,13 @@ static void IRAM_ATTR csi_callback(void *ctx, wifi_csi_info_t *data)
 {
     /* Guard against null/empty packets — can occur during association */
     if (!data || !data->buf || data->len == 0) {
+        s_cb_drop_invalid++;
+        return;
+    }
+
+    /* Sanity checks: CSI bytes must be imag+real pairs, and queue must exist */
+    if ((data->len & 0x1) != 0 || g_csi_queue == NULL) {
+        s_cb_drop_invalid++;
         return;
     }
 
@@ -133,7 +145,12 @@ static void IRAM_ATTR csi_callback(void *ctx, wifi_csi_info_t *data)
     /* Send to queue — timeout=0 means DROP if full (never block WiFi task).
      * BaseType_t woken: set if a higher-prio task was unblocked by this send. */
     BaseType_t higher_prio_task_woken = pdFALSE;
-    xQueueSendFromISR(g_csi_queue, &pkt, &higher_prio_task_woken);
+    BaseType_t sent = xQueueSendFromISR(g_csi_queue, &pkt, &higher_prio_task_woken);
+    if (sent != pdTRUE) {
+        s_cb_drop_queue_full++;
+        return;
+    }
+    s_cb_ok_packets++;
 
     /* If the queue send woke our processing task, yield to it immediately
      * rather than waiting for the next FreeRTOS tick. This minimises latency. */
@@ -168,6 +185,10 @@ static void csi_processing_task(void *arg)
     /* Monitoring counters */
     uint32_t packets_processed = 0;
     uint32_t packets_dropped   = 0;
+    int64_t last_diag_ts       = 0;
+    int32_t rssi_min           = 0;
+    int32_t rssi_max           = -100;
+    int64_t rssi_sum           = 0;
 
     ESP_LOGI(TAG, "CSI processing task running on core %d", xPortGetCoreID());
 
@@ -185,6 +206,18 @@ static void csi_processing_task(void *arg)
             packets_dropped++;
             continue;
         }
+
+        if (packets_processed == 0) {
+            rssi_min = pkt.rssi;
+            rssi_max = pkt.rssi;
+        }
+        if (pkt.rssi < rssi_min) {
+            rssi_min = pkt.rssi;
+        }
+        if (pkt.rssi > rssi_max) {
+            rssi_max = pkt.rssi;
+        }
+        rssi_sum += pkt.rssi;
 
         /* Compute amplitude for each subcarrier.
          * CSI buffer layout: [imag0, real0, imag1, real1, ...]
@@ -222,10 +255,30 @@ static void csi_processing_task(void *arg)
          * (because Python filters for lines starting with "CSI,"). */
         if (packets_processed % 500 == 0) {
             UBaseType_t queue_waiting = uxQueueMessagesWaiting(g_csi_queue);
+            int32_t rssi_avg = (packets_processed > 0)
+                ? (int32_t)(rssi_sum / (int64_t)packets_processed)
+                : 0;
             ESP_LOGI(TAG, "Processed: %"PRIu32"  Dropped: %"PRIu32
-                     "  Queue depth: %d/%d",
+                     "  Queue depth: %d/%d  RSSI[min/avg/max]=%"PRId32"/%"PRId32"/%"PRId32
+                     "  CB[ok=%"PRIu32" invalid=%"PRIu32" qfull=%"PRIu32"]",
                      packets_processed, packets_dropped,
-                     (int)queue_waiting, CSI_QUEUE_LENGTH);
+                     (int)queue_waiting, CSI_QUEUE_LENGTH,
+                     rssi_min, rssi_avg, rssi_max,
+                     s_cb_ok_packets, s_cb_drop_invalid, s_cb_drop_queue_full);
+
+#if ENABLE_DIAG_LINES
+            int64_t now_us = esp_timer_get_time();
+            if (now_us - last_diag_ts >= (int64_t)DIAG_INTERVAL_MS * 1000) {
+                int qd = (int)uxQueueMessagesWaiting(g_csi_queue);
+                ets_printf("DIAG,%" PRId64 ",%" PRIu32 ",%" PRIu32 ",%d,%d\n",
+                           now_us,
+                           packets_processed,
+                           packets_dropped,
+                           qd,
+                           CSI_FORMAT_VERSION);
+                last_diag_ts = now_us;
+            }
+#endif
         }
     }
 }
