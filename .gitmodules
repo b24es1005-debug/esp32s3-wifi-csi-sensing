@@ -1,0 +1,3 @@
+[submodule "esp32s3-wifi-csi-sensing"]
+	path = esp32s3-wifi-csi-sensing
+	url = https://github.com/b24es1005-debug/esp32s3-wifi-csi-sensing.git
