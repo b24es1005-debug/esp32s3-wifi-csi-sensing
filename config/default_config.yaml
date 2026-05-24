@@ -1,0 +1,13 @@
+# Default configuration for CSI project (Python tools)
+recorder:
+  port: /dev/ttyACM0
+  baud: 115200
+  outdir: ../data
+  duration: 0.0
+
+visualizer:
+  port: /dev/ttyACM0
+  baud: 115200
+  motion_threshold: 0.5
+  presence_threshold: 0.1
+  history: 200
