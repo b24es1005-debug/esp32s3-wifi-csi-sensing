@@ -25,6 +25,14 @@ import serial
 
 log = logging.getLogger("csi.recorder")
 
+ALLOWED_LABELS = {
+    "empty_room",
+    "walking",
+    "sitting",
+    "standing",
+    "micro_motion",
+}
+
 
 def write_metadata(path_csv: Path, metadata: dict) -> None:
     meta_path = path_csv.with_suffix(".json")
@@ -37,6 +45,9 @@ def run(port: str = "/dev/ttyACM0", baud: int = 115200,
         outdir: str = "../data", duration: float = 0.0,
         label: Optional[str] = None):
     log.info("Recorder starting — port=%s baud=%d", port, baud)
+
+    if label is not None and label not in ALLOWED_LABELS:
+        raise ValueError(f"Invalid label '{label}'. Allowed: {sorted(ALLOWED_LABELS)}")
 
     try:
         ser = serial.Serial(port, baud, timeout=2.0)
@@ -52,6 +63,8 @@ def run(port: str = "/dev/ttyACM0", baud: int = 115200,
     rx_total = 0
     valid = 0
     bad = 0
+    last_ts_us: Optional[int] = None
+    ts_delta_us = []
 
     try:
         while True:
@@ -78,6 +91,13 @@ def run(port: str = "/dev/ttyACM0", baud: int = 115200,
                 bad += 1
                 continue
             valid += 1
+
+            if last_ts_us is not None:
+                delta = pkt["timestamp_us"] - last_ts_us
+                if delta > 0:
+                    ts_delta_us.append(delta)
+            last_ts_us = pkt["timestamp_us"]
+
             if csv_writer is None:
                 csv_path = make_csv_path(outdir)
                 fieldnames = csv_fieldnames(pkt["num_subcarriers"])
@@ -119,9 +139,22 @@ def run(port: str = "/dev/ttyACM0", baud: int = 115200,
                 "valid_packets": valid,
                 "malformed": bad,
                 "total_rx": rx_total,
+                "loss_proxy_ratio": round((bad / (valid + bad)) if (valid + bad) else 0.0, 6),
                 "recorder_time_iso": time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime()),
                 "firmware_git": git_sha,
             }
+
+            if ts_delta_us:
+                import numpy as np
+                d = np.array(ts_delta_us, dtype=np.float64)
+                metadata["timing"] = {
+                    "mean_delta_us": float(d.mean()),
+                    "std_delta_us": float(d.std()),
+                    "min_delta_us": float(d.min()),
+                    "max_delta_us": float(d.max()),
+                    "estimated_rate_hz": float(1e6 / d.mean()) if d.mean() > 0 else 0.0,
+                }
+
             write_metadata(Path(csv_path), metadata)
 
 
@@ -131,7 +164,7 @@ def build_parser():
     p.add_argument("--baud", default=115200, type=int)
     p.add_argument("--outdir", default="../data")
     p.add_argument("--duration", default=0.0, type=float)
-    p.add_argument("--label", default=None)
+    p.add_argument("--label", default=None, choices=sorted(ALLOWED_LABELS))
     return p
 
 
