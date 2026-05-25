@@ -496,13 +496,18 @@ esp_err_t wifi_csi_init(void)
      * it must be in fast DRAM. */
     tcb_buf = heap_caps_malloc(sizeof(StaticTask_t),
                                MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+
+    /* Prefer PSRAM for the task stack. If PSRAM allocation fails, do NOT
+     * silently fall back to internal DRAM: that often leads to stack
+     * overflows because internal RAM is scarce. Fail early with a clear
+     * error so the user can either enable PSRAM or reduce
+     * `CSI_TASK_STACK_SIZE`/`CSI_QUEUE_LENGTH`. */
     stack_buf = heap_caps_malloc(CSI_TASK_STACK_SIZE * sizeof(StackType_t),
                                  MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-
     if (!stack_buf) {
-        ESP_LOGW(TAG, "PSRAM stack allocation failed; trying internal RAM fallback");
-        stack_buf = heap_caps_malloc(CSI_TASK_STACK_SIZE * sizeof(StackType_t),
-                                     MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+        ESP_LOGE(TAG, "PSRAM stack allocation failed — PSRAM is required for CSI task; enable PSRAM or reduce CSI_TASK_STACK_SIZE");
+        err = ESP_ERR_NO_MEM;
+        goto cleanup;
     }
 
     if (!tcb_buf || !stack_buf) {
