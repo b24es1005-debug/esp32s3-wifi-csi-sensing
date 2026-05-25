@@ -1,15 +1,10 @@
-# =============================================================================
-# firmware/csi_receiver/CMakeLists.txt
-# Top-level CMake file for the ESP-IDF project.
-# ESP-IDF requires this exact structure at the project root.
-# =============================================================================
+## This CMakeLists originally acted as the ESP-IDF project root.
+## The canonical ESP-IDF top-level CMake is now `firmware/CMakeLists.txt`.
+## Keep this file as a harmless marker so the directory remains a normal
+## subdirectory when building from the new top-level project.
 
 cmake_minimum_required(VERSION 3.16)
 
-# Include the ESP-IDF CMake build system.
-# The IDF_PATH environment variable must point to your ESP-IDF installation.
-# This is set automatically by running `. ~/esp/esp-idf/export.sh`
-include($ENV{IDF_PATH}/tools/cmake/project.cmake)
+# No `project()` or `include($ENV{IDF_PATH}/tools/cmake/project.cmake)` here;
+# the top-level `firmware/CMakeLists.txt` provides the project() call.
 
-# Project name — used by idf.py as the build output name
-project(csi_receiver)

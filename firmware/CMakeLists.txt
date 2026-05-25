@@ -1,7 +1,13 @@
 cmake_minimum_required(VERSION 3.16)
 
-# Wrapper CMakeLists for convenience: delegate to the existing
-# ESP-IDF project in `csi_receiver/` so `idf.py` commands work
-# when invoked from `firmware/`.
+# Top-level ESP-IDF project for this firmware folder.
+# This file must contain a literal `project()` call and include the
+# ESP-IDF CMake project helper so the toolchain and idf build system
+# are configured correctly when running `idf.py` from `firmware/`.
 
-add_subdirectory(csi_receiver)
+if(NOT DEFINED ENV{IDF_PATH})
+	message(FATAL_ERROR "IDF_PATH environment variable is not set. Source ESP-IDF export script before building.")
+endif()
+
+include($ENV{IDF_PATH}/tools/cmake/project.cmake)
+project(csi_receiver)
