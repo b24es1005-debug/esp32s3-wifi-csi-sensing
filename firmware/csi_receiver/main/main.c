@@ -78,7 +78,11 @@ void app_main(void)
      * This call creates the FreeRTOS queue, spawns the processing task,
      * connects to WiFi, and enables the CSI callback.
      * After this returns, CSI data is flowing automatically. */
-    wifi_csi_init();
+    esp_err_t csi_ret = wifi_csi_init();
+    if (csi_ret != ESP_OK) {
+        ESP_LOGE(TAG, "CSI init failed: %s", esp_err_to_name(csi_ret));
+        return;
+    }
 
     ESP_LOGI(TAG, "System running — CSI lines appearing on UART0");
     ESP_LOGI(TAG, "Open Python visualizer: python3 python/visualizer.py");

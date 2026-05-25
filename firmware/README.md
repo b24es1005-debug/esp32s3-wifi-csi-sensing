@@ -36,3 +36,5 @@ Notes
 - If you previously built from `firmware/csi_receiver`, remove stale caches and rebuild from `firmware/`.
 - If the build picks `/usr/bin/cc`, ensure you sourced `export.sh` correctly and that `xtensa-esp32s3-elf-gcc` is on your PATH.
 - If you see `undefined reference to app_main`, clean the build directory and rebuild from `firmware/` so the `csi_receiver/main` component is re-discovered.
+- Current low-memory defaults: `CSI_MAX_SUBCARRIERS=52`, `CSI_QUEUE_LENGTH=8`, `CSI_TASK_STACK_SIZE=2048` words.
+- Increase those values only if you have verified there is enough free DRAM/PSRAM for your exact capture setup.
