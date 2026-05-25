@@ -9,5 +9,7 @@ if(NOT DEFINED ENV{IDF_PATH})
 	message(FATAL_ERROR "IDF_PATH environment variable is not set. Source ESP-IDF export script before building.")
 endif()
 
+set(EXTRA_COMPONENT_DIRS "${CMAKE_CURRENT_LIST_DIR}/csi_receiver/main")
+
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 project(csi_receiver)

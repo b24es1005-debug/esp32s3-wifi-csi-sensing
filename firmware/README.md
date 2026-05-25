@@ -2,6 +2,10 @@
 
 This folder is the ESP-IDF project root for the `csi_receiver` firmware.
 
+Project wiring
+- `firmware/CMakeLists.txt` is the ESP-IDF top-level project file.
+- `firmware/csi_receiver/main` is added through `EXTRA_COMPONENT_DIRS` so `main.c` is compiled and `app_main()` is linked.
+
 Prerequisites
 - ESP-IDF installed and `export.sh` sourced (sets `IDF_PATH` and updates PATH).
 - Xtensa/RISC-V toolchain for ESP32-S3 available via ESP-IDF or separately.
@@ -31,3 +35,4 @@ Notes
 - This repo uses `firmware/CMakeLists.txt` as the ESP-IDF top-level CMake file.
 - If you previously built from `firmware/csi_receiver`, remove stale caches and rebuild from `firmware/`.
 - If the build picks `/usr/bin/cc`, ensure you sourced `export.sh` correctly and that `xtensa-esp32s3-elf-gcc` is on your PATH.
+- If you see `undefined reference to app_main`, clean the build directory and rebuild from `firmware/` so the `csi_receiver/main` component is re-discovered.

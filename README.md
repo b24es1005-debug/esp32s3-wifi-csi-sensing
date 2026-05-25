@@ -62,7 +62,30 @@ while building a research-grade, portfolio-quality engineering project.
 
 ## Current Status
 
-🚧 Phase 1 — ESP32-S3 setup and CSI capture in progress.
+✅ ESP32-S3 firmware project structure, toolchain selection, and CSI entrypoint wiring are in place.
+
+## Firmware Build
+
+The ESP-IDF project root is `firmware/`.
+
+Clean build steps:
+```bash
+cd firmware
+. $IDF_PATH/export.sh   # or `. ~/esp/esp-idf/export.sh`
+rm -rf build
+rm -f CMakeCache.txt sdkconfig sdkconfig.old
+rm -rf csi_receiver/build
+rm -f csi_receiver/sdkconfig csi_receiver/sdkconfig.old
+idf.py set-target esp32s3
+idf.py build
+```
+
+Flash and monitor:
+```bash
+idf.py -p /dev/ttyUSB0 flash monitor
+```
+
+If CMake ever reports the host compiler (`/usr/bin/cc`) or complains about `app_main`, delete the build cache again and rebuild from `firmware/` after sourcing ESP-IDF.
 
 ## Future Extensions
 
