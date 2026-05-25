@@ -185,10 +185,12 @@ static void csi_processing_task(void *arg)
     /* Monitoring counters */
     uint32_t packets_processed = 0;
     uint32_t packets_dropped   = 0;
-    int64_t last_diag_ts       = 0;
     int32_t rssi_min           = 0;
     int32_t rssi_max           = -100;
     int64_t rssi_sum           = 0;
+#if ENABLE_DIAG_LINES
+    int64_t last_diag_ts       = 0;
+#endif
 
     ESP_LOGI(TAG, "CSI processing task running on core %d", xPortGetCoreID());
 
