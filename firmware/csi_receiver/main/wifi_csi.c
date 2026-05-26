@@ -29,13 +29,12 @@
 #include "esp_wifi.h"
 #include "esp_event.h"
 #include "esp_log.h"
-#include "esp_heap_caps.h"
 #include "esp_timer.h"
 #include "esp_err.h"
 #include "nvs_flash.h"
 #include "esp_netif.h"
 #include "rom/ets_sys.h"   /* ets_printf — writes directly to UART0 hardware */
-
+#define FIXED_SUBCARRIERS 52
 static const char *TAG = "WIFI_CSI";
 
 /* Global queue handle — defined here, declared extern in wifi_csi.h */
@@ -47,11 +46,6 @@ static EventGroupHandle_t s_wifi_event_group = NULL;
 
 /* Throttle counter — only emit every CSI_THROTTLE_EVERY packets */
 static volatile uint32_t s_packet_count = 0;
-
-/* Callback-level statistics (best-effort, lock-free) */
-static volatile uint32_t s_cb_ok_packets      = 0;
-static volatile uint32_t s_cb_drop_invalid    = 0;
-static volatile uint32_t s_cb_drop_queue_full = 0;
 
 /* ===========================================================================
  * SECTION 1: WiFi event handler
@@ -106,13 +100,6 @@ static void IRAM_ATTR csi_callback(void *ctx, wifi_csi_info_t *data)
 {
     /* Guard against null/empty packets — can occur during association */
     if (!data || !data->buf || data->len == 0) {
-        s_cb_drop_invalid++;
-        return;
-    }
-
-    /* Sanity checks: CSI bytes must be imag+real pairs, and queue must exist */
-    if ((data->len & 0x1) != 0 || g_csi_queue == NULL) {
-        s_cb_drop_invalid++;
         return;
     }
 
@@ -146,12 +133,7 @@ static void IRAM_ATTR csi_callback(void *ctx, wifi_csi_info_t *data)
     /* Send to queue — timeout=0 means DROP if full (never block WiFi task).
      * BaseType_t woken: set if a higher-prio task was unblocked by this send. */
     BaseType_t higher_prio_task_woken = pdFALSE;
-    BaseType_t sent = xQueueSendFromISR(g_csi_queue, &pkt, &higher_prio_task_woken);
-    if (sent != pdTRUE) {
-        s_cb_drop_queue_full++;
-        return;
-    }
-    s_cb_ok_packets++;
+    xQueueSendFromISR(g_csi_queue, &pkt, &higher_prio_task_woken);
 
     /* If the queue send woke our processing task, yield to it immediately
      * rather than waiting for the next FreeRTOS tick. This minimises latency. */
@@ -186,12 +168,6 @@ static void csi_processing_task(void *arg)
     /* Monitoring counters */
     uint32_t packets_processed = 0;
     uint32_t packets_dropped   = 0;
-    int32_t rssi_min           = 0;
-    int32_t rssi_max           = -100;
-    int64_t rssi_sum           = 0;
-#if ENABLE_DIAG_LINES
-    int64_t last_diag_ts       = 0;
-#endif
 
     ESP_LOGI(TAG, "CSI processing task running on core %d", xPortGetCoreID());
 
@@ -209,18 +185,6 @@ static void csi_processing_task(void *arg)
             packets_dropped++;
             continue;
         }
-
-        if (packets_processed == 0) {
-            rssi_min = pkt.rssi;
-            rssi_max = pkt.rssi;
-        }
-        if (pkt.rssi < rssi_min) {
-            rssi_min = pkt.rssi;
-        }
-        if (pkt.rssi > rssi_max) {
-            rssi_max = pkt.rssi;
-        }
-        rssi_sum += pkt.rssi;
 
         /* Compute amplitude for each subcarrier.
          * CSI buffer layout: [imag0, real0, imag1, real1, ...]
@@ -240,13 +204,17 @@ static void csi_processing_task(void *arg)
          * We deliberately omit the MAC address to keep lines shorter
          * and reduce UART load. Add ",mac" field back if needed for
          * multi-device setups in Phase 5. */
+        if (n > FIXED_SUBCARRIERS) {
+          n = FIXED_SUBCARRIERS;
+        }
+        
         ets_printf("CSI,%" PRId64 ",%d,%d",
                    pkt.timestamp_us,
                    (int)pkt.rssi,
                    (int)n);
-
+        
         for (uint16_t i = 0; i < n; i++) {
-          int amp_int = (int)(amplitudes[i] * 100.0f);
+          int amp_int = (int)(amplitudes[i] * 100);
           ets_printf(",%d", amp_int);
         }
         ets_printf("\n");
@@ -258,30 +226,10 @@ static void csi_processing_task(void *arg)
          * (because Python filters for lines starting with "CSI,"). */
         if (packets_processed % 500 == 0) {
             UBaseType_t queue_waiting = uxQueueMessagesWaiting(g_csi_queue);
-            int32_t rssi_avg = (packets_processed > 0)
-                ? (int32_t)(rssi_sum / (int64_t)packets_processed)
-                : 0;
             ESP_LOGI(TAG, "Processed: %"PRIu32"  Dropped: %"PRIu32
-                     "  Queue depth: %d/%d  RSSI[min/avg/max]=%"PRId32"/%"PRId32"/%"PRId32
-                     "  CB[ok=%"PRIu32" invalid=%"PRIu32" qfull=%"PRIu32"]",
+                     "  Queue depth: %d/%d",
                      packets_processed, packets_dropped,
-                     (int)queue_waiting, CSI_QUEUE_LENGTH,
-                     rssi_min, rssi_avg, rssi_max,
-                     s_cb_ok_packets, s_cb_drop_invalid, s_cb_drop_queue_full);
-
-#if ENABLE_DIAG_LINES
-            int64_t now_us = esp_timer_get_time();
-            if (now_us - last_diag_ts >= (int64_t)DIAG_INTERVAL_MS * 1000) {
-                int qd = (int)uxQueueMessagesWaiting(g_csi_queue);
-                ets_printf("DIAG,%" PRId64 ",%" PRIu32 ",%" PRIu32 ",%d,%d\n",
-                           now_us,
-                           packets_processed,
-                           packets_dropped,
-                           qd,
-                           CSI_FORMAT_VERSION);
-                last_diag_ts = now_us;
-            }
-#endif
+                     (int)queue_waiting, CSI_QUEUE_LENGTH);
         }
     }
 }
@@ -292,44 +240,25 @@ static void csi_processing_task(void *arg)
  * Sets up the ESP-IDF WiFi stack in Station mode, registers the CSI callback,
  * and starts the connection process.
  * =========================================================================== */
-static esp_err_t wifi_init_sta(void)
+static void wifi_init_sta(void)
 {
     s_wifi_event_group = xEventGroupCreate();
-    if (s_wifi_event_group == NULL) {
-        ESP_LOGE(TAG, "Failed to create WiFi event group");
-        return ESP_ERR_NO_MEM;
-    }
 
     /* Create default WiFi station netif */
-    if (esp_netif_create_default_wifi_sta() == NULL) {
-        ESP_LOGE(TAG, "Failed to create default WiFi STA netif");
-        return ESP_ERR_NO_MEM;
-    }
+    esp_netif_create_default_wifi_sta();
 
     /* Initialise WiFi driver with default configuration.
      * WIFI_INIT_CONFIG_DEFAULT() sets safe values for all 40+ fields. */
     wifi_init_config_t init_cfg = WIFI_INIT_CONFIG_DEFAULT();
-    esp_err_t err = esp_wifi_init(&init_cfg);
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "esp_wifi_init failed: %s", esp_err_to_name(err));
-        return err;
-    }
+    ESP_ERROR_CHECK(esp_wifi_init(&init_cfg));
 
     /* Register our event handler for WiFi and IP events */
-    err = esp_event_handler_instance_register(
+    ESP_ERROR_CHECK(esp_event_handler_instance_register(
         WIFI_EVENT, ESP_EVENT_ANY_ID,
-        &wifi_event_handler, NULL, NULL);
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "Register WIFI_EVENT handler failed: %s", esp_err_to_name(err));
-        return err;
-    }
-    err = esp_event_handler_instance_register(
+        &wifi_event_handler, NULL, NULL));
+    ESP_ERROR_CHECK(esp_event_handler_instance_register(
         IP_EVENT, IP_EVENT_STA_GOT_IP,
-        &wifi_event_handler, NULL, NULL);
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "Register IP_EVENT handler failed: %s", esp_err_to_name(err));
-        return err;
-    }
+        &wifi_event_handler, NULL, NULL));
 
     /* Configure SSID and password */
     wifi_config_t wifi_config = {
@@ -342,26 +271,10 @@ static esp_err_t wifi_init_sta(void)
         },
     };
 
-    err = esp_wifi_set_mode(WIFI_MODE_STA);
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "esp_wifi_set_mode failed: %s", esp_err_to_name(err));
-        return err;
-    }
-    err = esp_wifi_set_config(WIFI_IF_STA, &wifi_config);
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "esp_wifi_set_config failed: %s", esp_err_to_name(err));
-        return err;
-    }
-    err = esp_wifi_start();
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "esp_wifi_start failed: %s", esp_err_to_name(err));
-        return err;
-    }
-    err = esp_wifi_set_ps(WIFI_PS_NONE);
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "esp_wifi_set_ps failed: %s", esp_err_to_name(err));
-        return err;
-    }
+    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
+    ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_config));
+    ESP_ERROR_CHECK(esp_wifi_start());
+
     ESP_LOGI(TAG, "WiFi init complete. Connecting to SSID: %s", CSI_WIFI_SSID);
 
     /* Wait until connected (or timeout after 30 s) */
@@ -378,14 +291,12 @@ static esp_err_t wifi_init_sta(void)
     } else {
         ESP_LOGW(TAG, "WiFi connection timeout — CSI may still work from nearby APs");
     }
-
-    return ESP_OK;
 }
 
 /* ===========================================================================
  * SECTION 5: CSI configuration and callback registration
  * =========================================================================== */
-static esp_err_t csi_init(void)
+static void csi_init(void)
 {
     /* Configure which frame types contribute CSI measurements.
      *
@@ -418,57 +329,35 @@ static esp_err_t csi_init(void)
         .shift             = 0,
     };
 
-    esp_err_t err = esp_wifi_set_csi_config(&csi_config);
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "esp_wifi_set_csi_config failed: %s", esp_err_to_name(err));
-        return err;
-    }
-    wifi_promiscuous_filter_t filt = {
-      .filter_mask =
-          WIFI_PROMIS_FILTER_MASK_MGMT |
-          WIFI_PROMIS_FILTER_MASK_DATA |
-          WIFI_PROMIS_FILTER_MASK_CTRL
-    };
-    
-    err = esp_wifi_set_promiscuous_filter(&filt);
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "esp_wifi_set_promiscuous_filter failed: %s", esp_err_to_name(err));
-        return err;
-    }
+    ESP_ERROR_CHECK(esp_wifi_set_csi_config(&csi_config));
+
     /* Register callback — called once per received WiFi frame with CSI data.
      * ctx (second arg) is user data pointer passed to callback; unused here. */
-    err = esp_wifi_set_promiscuous(true);
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "esp_wifi_set_promiscuous(true) failed: %s", esp_err_to_name(err));
-        return err;
-    }
-    
-    err = esp_wifi_set_csi_rx_cb(csi_callback, NULL);
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "esp_wifi_set_csi_rx_cb failed: %s", esp_err_to_name(err));
-        return err;
-    }
-    
-    err = esp_wifi_set_csi(true);
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "esp_wifi_set_csi(true) failed: %s", esp_err_to_name(err));
-        return err;
-    }
+    ESP_ERROR_CHECK(esp_wifi_set_csi_rx_cb(csi_callback, NULL));
 
+    /* Enable CSI — must be called AFTER esp_wifi_start() */
+    ESP_ERROR_CHECK(esp_wifi_set_csi(true));
+    /* Enable promiscuous mode so CSI callbacks occur for all nearby frames */
+    ESP_ERROR_CHECK(esp_wifi_set_promiscuous(true));
+    
+    wifi_promiscuous_filter_t filt = {
+      .filter_mask =
+    WIFI_PROMIS_FILTER_MASK_DATA |
+    WIFI_PROMIS_FILTER_MASK_MGMT |
+    WIFI_PROMIS_FILTER_MASK_CTRL
+    };
+    
+    ESP_ERROR_CHECK(esp_wifi_set_promiscuous_filter(&filt));
+    
+    ESP_LOGI(TAG, "Promiscuous mode enabled");
     ESP_LOGI(TAG, "CSI capture enabled");
-    return ESP_OK;
 }
 
 /* ===========================================================================
  * SECTION 6: Public init function — called from main.c
  * =========================================================================== */
-esp_err_t wifi_csi_init(void)
+void wifi_csi_init(void)
 {
-    esp_err_t err = ESP_OK;
-    StaticTask_t *tcb_buf = NULL;
-    StackType_t  *stack_buf = NULL;
-    TaskHandle_t task_handle = NULL;
-
     /* ── Step 1: Create the inter-task queue ──────────────────────────────
      * uxQueueLength: how many csi_packet_t structs it can hold
      * uxItemSize:    size of each item in bytes (copied by value)
@@ -478,7 +367,8 @@ esp_err_t wifi_csi_init(void)
     g_csi_queue = xQueueCreate(CSI_QUEUE_LENGTH, sizeof(csi_packet_t));
     if (g_csi_queue == NULL) {
         ESP_LOGE(TAG, "Failed to create CSI queue — out of DRAM");
-        return ESP_ERR_NO_MEM;
+        /* In production firmware you'd restart or signal an error LED */
+        abort();
     }
     ESP_LOGI(TAG, "CSI queue created (%d slots × %d bytes)",
              CSI_QUEUE_LENGTH, (int)sizeof(csi_packet_t));
@@ -494,29 +384,19 @@ esp_err_t wifi_csi_init(void)
      * TCB from internal DRAM (MALLOC_CAP_INTERNAL): the Task Control
      * Block is accessed by the scheduler on every context switch, so
      * it must be in fast DRAM. */
-    tcb_buf = heap_caps_malloc(sizeof(StaticTask_t),
-                               MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
-
-    /* Prefer PSRAM for the task stack. If PSRAM allocation fails, do NOT
-     * silently fall back to internal DRAM: that often leads to stack
-     * overflows because internal RAM is scarce. Fail early with a clear
-     * error so the user can either enable PSRAM or reduce
-     * `CSI_TASK_STACK_SIZE`/`CSI_QUEUE_LENGTH`. */
-    stack_buf = heap_caps_malloc(CSI_TASK_STACK_SIZE * sizeof(StackType_t),
-                                 MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-    if (!stack_buf) {
-        ESP_LOGE(TAG, "PSRAM stack allocation failed — PSRAM is required for CSI task; enable PSRAM or reduce CSI_TASK_STACK_SIZE");
-        err = ESP_ERR_NO_MEM;
-        goto cleanup;
-    }
+    StaticTask_t *tcb_buf   = heap_caps_malloc(sizeof(StaticTask_t),
+                                                MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    StackType_t  *stack_buf = heap_caps_malloc(
+      CSI_TASK_STACK_SIZE * sizeof(StackType_t),
+      MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT
+    );
 
     if (!tcb_buf || !stack_buf) {
         ESP_LOGE(TAG, "Failed to allocate task buffers");
-        err = ESP_ERR_NO_MEM;
-        goto cleanup;
+        abort();
     }
 
-    task_handle = xTaskCreateStaticPinnedToCore(
+    TaskHandle_t task_handle = xTaskCreateStaticPinnedToCore(
         csi_processing_task,  /* task function                        */
         "csi_proc",           /* name for debugging (vTaskList)       */
         CSI_TASK_STACK_SIZE,  /* stack size in words                  */
@@ -529,44 +409,12 @@ esp_err_t wifi_csi_init(void)
 
     if (task_handle == NULL) {
         ESP_LOGE(TAG, "Failed to create CSI processing task");
-        err = ESP_FAIL;
-        goto cleanup;
+        abort();
     }
     ESP_LOGI(TAG, "CSI task started on core %d, priority %d",
              CSI_TASK_CORE, CSI_TASK_PRIORITY);
 
     /* ── Step 3: WiFi STA + CSI ───────────────────────────────────────── */
-    err = wifi_init_sta();
-    if (err != ESP_OK) {
-        goto cleanup;
-    }
-
-    err = csi_init();
-    if (err != ESP_OK) {
-        goto cleanup;
-    }
-
-    return ESP_OK;
-
-cleanup:
-    if (task_handle != NULL) {
-        vTaskDelete(task_handle);
-        task_handle = NULL;
-    }
-    if (stack_buf != NULL) {
-        heap_caps_free(stack_buf);
-    }
-    if (tcb_buf != NULL) {
-        heap_caps_free(tcb_buf);
-    }
-    if (g_csi_queue != NULL) {
-        vQueueDelete(g_csi_queue);
-        g_csi_queue = NULL;
-    }
-    if (s_wifi_event_group != NULL) {
-        vEventGroupDelete(s_wifi_event_group);
-        s_wifi_event_group = NULL;
-    }
-
-    return err;
+    wifi_init_sta();
+    csi_init();
 }

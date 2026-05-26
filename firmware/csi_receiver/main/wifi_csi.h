@@ -9,9 +9,7 @@
 
 #pragma once
 
-#include "fw_config.h"
 #include <stdint.h>
-#include "esp_err.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
 #include "esp_wifi_types.h"
@@ -25,19 +23,18 @@
 #define CSI_WIFI_SSID        "Kannaiya"
 #define CSI_WIFI_PASSWORD    "19731618"
 
-/* CSI capture is tuned conservatively for ESP32-S3 runtime stability.
- * HT20 gives 52 subcarriers, which is enough for most sensing experiments.
- * If you need larger captures later, increase this value carefully. */
-#define CSI_MAX_SUBCARRIERS   52
+/* Maximum 802.11n HT40 gives 114 subcarriers; HT20 gives 52.
+ * We allocate for the maximum so the struct is always the same size. */
+#define CSI_MAX_SUBCARRIERS  114
 
-/* FreeRTOS queue depth. 8 packets keeps memory use low and avoids
- * over-buffering on systems with smaller internal DRAM headroom. */
-#define CSI_QUEUE_LENGTH      8
+/* FreeRTOS queue depth. 32 packets × ~260 bytes = ~8 KB DRAM.
+ * At 100 Hz capture, this is 320 ms of buffer before drops start. */
+#define CSI_QUEUE_LENGTH     32
 
 /* Processing task configuration */
-#define CSI_TASK_STACK_SIZE   2048  /* words — PSRAM preferred, fallback allowed */
-#define CSI_TASK_PRIORITY     5     /* below WiFi (23), above idle (0) */
-#define CSI_TASK_CORE         1     /* core 1 — WiFi stack runs on core 0 */
+#define CSI_TASK_STACK_SIZE  4096   /* words — allocated from PSRAM */
+#define CSI_TASK_PRIORITY    5      /* below WiFi (23), above idle (0) */
+#define CSI_TASK_CORE        1      /* core 1 — WiFi stack runs on core 0 */
 
 /* Packet throttle: only output every Nth packet over serial.
  * At 100 Hz input and throttle=2, output rate ≈ 50 Hz.
@@ -68,7 +65,7 @@ typedef struct {
 /* Call once from app_main() after nvs_flash_init() and esp_netif_init().
  * Creates the FreeRTOS queue, spawns the processing task,
  * initialises WiFi in STA mode, and registers the CSI callback. */
-esp_err_t wifi_csi_init(void);
+void wifi_csi_init(void);
 
 /* Queue handle exposed so other modules can peek at queue depth for debugging */
 extern QueueHandle_t g_csi_queue;

@@ -396,11 +396,22 @@ class CSIDashboard:
             self.ax_amp.set_xlim(0, len(self._current_amps) - 1)
 
             if len(self._amp_history) >= self.csi_cfg.var_window:
-                smth = np.mean(
-                    np.stack(list(self._amp_history)[-self.csi_cfg.var_window:]),
-                    axis=0,
+
+                history_list = list(self._amp_history)[-self.csi_cfg.var_window:]
+
+                min_len = min(len(arr) for arr in history_list)
+
+                history = np.stack(
+                    [arr[:min_len] for arr in history_list],
+                    axis=0
                 )
-                self.line_smth.set_data(x, smth)
+
+                smth = np.mean(history, axis=0)
+
+    # Match x-axis length
+                x_smth = np.arange(len(smth))
+
+                self.line_smth.set_data(x_smth, smth)
 
         # ── Panel 2: motion state ────────────────────────────────────────
         is_motion = (self._motion_state == MotionState.MOTION)
@@ -423,6 +434,20 @@ class CSIDashboard:
             n_fill = min(len(hist), self.vcfg.HISTORY)
             for i, row in enumerate(hist[-n_fill:]):
                 col = self.vcfg.HISTORY - n_fill + i
+                target_len = mat.shape[0]
+
+# Crop if too large
+                if len(row) > target_len:
+                    row = row[:target_len]
+
+# Pad if too small
+                elif len(row) < target_len:
+                    row = np.pad(
+                        row,
+                        (0, target_len - len(row)),
+                        mode="constant"
+                    )
+
                 mat[:, col] = row
             self.heatmap.set_data(mat)
 
