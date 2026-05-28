@@ -99,6 +99,11 @@ For detailed architecture documentation, see `docs/architecture/system_architect
 ---
 
 ---
+## 🎥 Live Demo
+
+<p align="center">
+  <img src="docs/images/demo.gif" width="900"/>
+</p>
 
 ## 🖼️ Screenshots & Showcase
 
