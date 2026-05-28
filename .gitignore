@@ -1,49 +1,90 @@
+# ===== OS / Editor =====
 .DS_Store
 Thumbs.db
 *.swp
+*.swo
 *~
 
-# --- Development Environments ---
+# ===== IDEs =====
 .vscode/
 .idea/
-*.sublime-project
-*.sublime-workspace
+*.code-workspace
 
-# --- ESP-IDF / Firmware Build Artifacts ---
-firmware/csi_receiver/build/
-firmware/csi_receiver/sdkconfig
-firmware/csi_receiver/sdkconfig.old
-firmware/csi_receiver/managed_components/
-firmware/csi_receiver/dependencies.lock
+# ===== Python =====
+__pycache__/
+*.py[cod]
+*.pyd
+*.so
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
 
-# --- Python Virtual Environments & Dependencies ---
+# Virtual environments
 .venv/
-env/
 venv/
+env/
 ENV/
+
+# Packaging / build
 build/
 dist/
 *.egg-info/
-__pycache__/
-*.pyc
-*.pyo
-.pytest_cache/
-.coverage
-htmlcov/
-.mypy_cache/
+.eggs/
+pip-wheel-metadata/
 
-# --- Research Data / Datasets ---
-data/raw/*
-data/processed/*
-!data/raw/.gitkeep
-!data/processed/.gitkeep
-!data/templates/
-*.csv
+# ===== ESP-IDF / CMake build outputs =====
+firmware/build/
+firmware/**/build/
+firmware/**/managed_components/
+firmware/**/dependencies.lock
+firmware/**/sdkconfig.old
+
+# ===== Logs / runtime traces =====
+*.log
+logs/
+tmp/
+temp/
+
+# ===== Data artifacts (keep docs + example data) =====
+data/raw/**
+data/processed/**
+data/datasets/**
+!data/**/.gitkeep
+!data/csi_synthetic_demo.csv
+
+# Optional generated science artifacts
 *.h5
 *.npy
 *.npz
 *.mat
 
-# --- Hardware / J-Link ---
+# ===== Notebook & model caches =====
+.ipynb_checkpoints/
+.cache/
+
+# ===== Local tool metadata =====
+.python-version
+
+# ===== Embedded debug =====
 .gdbinit
 .gdb_history
+
+# Ensure model checkpoints and large artifacts are ignored by default, keep final exported model
+models/*.ckpt
+models/*.pth
+models/*.pt
+models/checkpoints/
+data/raw/**
+data/processed/**
+data/datasets/**
+!data/**/.gitkeep
+!data/csi_synthetic_demo.csv
+
+# Keep the single exported/packaged model used for inference, but ignore other models
+!ml/models/activity_model.pkl
+
+# PlatformIO
+.pio/

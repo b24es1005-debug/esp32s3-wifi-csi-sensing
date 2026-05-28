@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Documentation
+    url: https://github.com/b24es1005-debug/esp32s3-wifi-csi-sensing/tree/activity-recognition/docs
+    about: Review setup, architecture, and demo docs before opening issues.

@@ -1,0 +1,24 @@
+name: Docs Check Placeholder
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "**/*.md"
+      - "docs/**"
+
+jobs:
+  markdown-presence-check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Verify key docs exist
+        run: |
+          test -f README.md
+          test -f CONTRIBUTING.md
+          test -f docs/README.md
+          test -f docs/architecture/system_architecture.md
+          test -f docs/training/dataset_collection.md
+          test -f docs/demo/demo_guide.md
