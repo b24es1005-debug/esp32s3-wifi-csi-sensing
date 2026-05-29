@@ -20,8 +20,8 @@
  * --------------------------------------------------------------------------- */
 
 /* WiFi credentials — replace with your AP details */
-#define CSI_WIFI_SSID        "Kannaiya"
-#define CSI_WIFI_PASSWORD    "19731618"
+#define CSI_WIFI_SSID        "Your_SSID"
+#define CSI_WIFI_PASSWORD    "Your_Password"
 
 /* Maximum 802.11n HT40 gives 114 subcarriers; HT20 gives 52.
  * We allocate for the maximum so the struct is always the same size. */
