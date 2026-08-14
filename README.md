@@ -1,3 +1,5 @@
+
+
 # 📡 ESP32-S3 WiFi CSI Sensing for Human Activity Recognition
 
 <p align="center">
@@ -298,7 +300,7 @@ Detailed procedure: `docs/training/dataset_collection.md`.
 ## 🗂️ Repository Structure
 
 ```text
-esp32s3-wifi-csi-sensing-github/
+esp32s3-wifi-csi-sensing/
 ├── firmware/
 ├── ml/
 ├── python/
